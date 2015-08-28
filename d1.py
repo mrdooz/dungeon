@@ -1,6 +1,7 @@
 from PIL import Image, ImageDraw, ImageColor
 from random import randint
 
+
 class Room(object):
     def __init__(self, x, y, w, h):
         self.x = x
@@ -78,6 +79,7 @@ inner_wall_sprites[0x4+0x2] = (10, 4)
 inner_wall_sprites[0x4+0x1+0x2] = (11, 4)
 
 floor_sprite = (16, 12)
+
 
 def parse_room(f):
     room = []

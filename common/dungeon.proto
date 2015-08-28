@@ -1,0 +1,49 @@
+package dungeon;
+
+message Status
+{
+	optional int32 code = 1;
+	optional string msg = 2;
+}
+
+message Header
+{
+	optional Status status = 1;
+	optional fixed32 msg_hash = 2;
+
+	optional int32 token = 3;
+	optional bool is_response = 4;
+}
+
+message OpenGame
+{
+	optional int64 id = 1;
+	optional int32 max_num_players = 2;
+	optional int32 cur_num_players = 3;
+}
+
+message LobbyStatusRequest
+{
+	
+}
+
+message LobbyStatusResponse
+{
+	optional int32 num_running_games = 1;
+	repeated OpenGame open_games = 2;
+}
+
+message NewGameRequest {
+	optional int32 game_size = 1;	
+}
+
+message NewGameResponse {
+}
+
+message Player {
+	
+}
+
+message Game {
+	optional int64 id = 1;
+}
