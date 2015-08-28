@@ -1,5 +1,7 @@
 package dungeon;
 
+import "level.proto";
+
 message Status
 {
 	optional int32 code = 1;
@@ -24,7 +26,6 @@ message OpenGame
 
 message LobbyStatusRequest
 {
-	
 }
 
 message LobbyStatusResponse
@@ -33,17 +34,23 @@ message LobbyStatusResponse
 	repeated OpenGame open_games = 2;
 }
 
-message NewGameRequest {
-	optional int32 game_size = 1;	
+message NewGameRequest
+{
+	optional int32 game_size = 1;
 }
 
-message NewGameResponse {
+message NewGameResponse
+{
+	optional level.Level level = 1;
 }
 
-message Player {
+message Player
+{
 	
 }
 
-message Game {
+message Game
+{
 	optional int64 id = 1;
 }
+

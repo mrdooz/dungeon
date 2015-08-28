@@ -1,1 +1,1 @@
-protoc --python_out=. --proto_path=../common/ ../common/dungeon.proto
+protoc --python_out=. --proto_path=../common/ ../common/*.proto

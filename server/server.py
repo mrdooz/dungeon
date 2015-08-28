@@ -5,8 +5,10 @@ import tornado.web
 import tornado.websocket
 import uuid
 import logging
-import dungeon_pb2
 import struct
+import dungeon_pb2
+import level_pb2
+import types_pb2
 
 
 CONNECTED_CLIENTS = {}
@@ -34,7 +36,38 @@ class Player(object):
 
 
 class Level(object):
-    pass
+    def __init__(self, width, height):
+        self.width = width
+        self.height = height
+        self.data = [[' '] * width for i in range(height)]
+
+    def __iter__(self):
+        w, h = self.width, self.height
+        for i in range(h):
+            for j in range(w):
+                yield i, j, self.data[i][j]
+
+    def generate(self):
+        w, h = self.width, self.height
+        for i in range(h):
+            for j in range(w):
+                if i == 0 or i == h - 1 or j == 0 or j == w - 1:
+                    self.data[i][j] = 'x'
+
+    def to_protocol(self):
+        level = level_pb2.Level()
+        level.width = self.width
+        level.height = self.height
+
+        for i, j, d in self:
+            if d == 'x':
+                w = level.wall.add()
+                w.x = j
+                w.y = i
+        return level
+
+level = Level(16, 16)
+level.generate()
 
 
 class Client(object):
@@ -60,12 +93,22 @@ def create_response_header(req_header, msg_name):
     return header
 
 
+def create_request_header(req_header, msg_name):
+    header = dungeon_pb2.Header()
+    header.status.CopyFrom(create_status(0))
+    header.msg_hash = fnv32a(msg_name)
+    header.token = req_header.token
+    header.is_response = True
+    return header
+
+
 class MessageBroker(object):
     def __init__(self):
         self.handlers = {}
         self.hash_to_class = {}
 
-    def register_handler(self, msg_hash, cls, fn):
+    def register_handler(self, msg_name, cls, fn):
+        msg_hash = fnv32a(msg_name)
         if msg_hash in self.handlers:
             SERVER_LOG.warning('Handler already registered for: %r' % msg_hash)
             return
@@ -90,31 +133,36 @@ class MessageBroker(object):
 MESSAGE_BROKER = MessageBroker()
 
 
+def send_message(ws, header, body):
+    header_buf = header.SerializeToString()
+    body_buf = body.SerializeToString()
+    preamble_fmt = '!HH'
+    preamble = struct.pack(preamble_fmt, len(header_buf), len(body_buf))
+    ws.write_message(preamble + header_buf + body_buf, binary=True)
+
+
 def handle_new_game_request(ws, header, req):
-    pass
+    res_header = create_request_header(header, 'dungeon.NewGameResponse')
+    res_body = dungeon_pb2.NewGameResponse()
+    res_body.level.CopyFrom(level.to_protocol())
+    send_message(ws, res_header, res_body)
 
 
 def handle_lobby_status_request(ws, header, req):
-    header = create_response_header(header, 'LobbyStatusResponse')
-    header_buf = header.SerializeToString()
+    header = create_response_header(header, 'dungeon.LobbyStatusResponse')
     body = dungeon_pb2.LobbyStatusResponse()
     body.num_running_games = 3
-    body_buf = body.SerializeToString()
-
-    preamble_fmt = '!HH'
-    preamble = struct.pack(preamble_fmt, len(header_buf), len(body_buf))
-
-    ws.write_message(preamble + header_buf + body_buf, binary=True)
+    send_message(ws, header, body)
 
 
 def register_handlers():
     MESSAGE_BROKER.register_handler(
-        fnv32a('NewGameRequest'),
+        'dungeon.NewGameRequest',
         dungeon_pb2.NewGameRequest,
         handle_new_game_request)
 
     MESSAGE_BROKER.register_handler(
-        fnv32a('LobbyStatusRequest'),
+        'dungeon.LobbyStatusRequest',
         dungeon_pb2.LobbyStatusRequest,
         handle_lobby_status_request)
 
@@ -138,10 +186,10 @@ class EchoWebSocket(tornado.websocket.WebSocketHandler):
 
         print 'recv. header_size: %d, body_size: %d' % (header_size, body_size)
         header = dungeon_pb2.Header()
-        header.ParseFromString(message[4:4+header_size])
+        header.ParseFromString(message[4:4 + header_size])
 
         s = 4 + header_size
-        MESSAGE_BROKER.handle_message(self, header, message[s:s+body_size])
+        MESSAGE_BROKER.handle_message(self, header, message[s:s + body_size])
 
     def on_close(self):
         SERVER_LOG.info('client disconnected: %r', self.client_id)
@@ -153,8 +201,9 @@ class MainHandler(tornado.web.RequestHandler):
         self.write("Hello, world")
 
 application = tornado.web.Application([
-    (r"/websocket", EchoWebSocket),
-])
+    (r"/websocket", EchoWebSocket)],
+    debug=True
+)
 
 if __name__ == "__main__":
     print 'server started'

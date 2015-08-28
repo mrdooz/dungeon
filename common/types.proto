@@ -1,0 +1,19 @@
+package types;
+
+message Pos
+{
+	optional int32 x = 1;
+	optional int32 y = 2;
+}
+
+message Size
+{
+	optional int32 width = 1;
+	optional int32 height = 2;
+}
+
+message Rect
+{
+	optional Pos topLeft = 1;
+	optional Size size = 2;
+}

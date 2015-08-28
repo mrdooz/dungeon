@@ -1,0 +1,31 @@
+package level;
+
+import "types.proto";
+
+message Item
+{
+	optional types.Pos pos = 1;
+}
+
+message Monster
+{
+	optional types.Pos pos = 1;
+}
+
+message FloorSection
+{
+	optional types.Rect rect = 1;
+	optional int32 sprite = 2;
+}
+
+message Level
+{
+	optional int32 width = 1;
+	optional int32 height = 2;
+
+	repeated FloorSection floor = 3;
+	repeated types.Pos wall = 4;
+
+	repeated Item item = 5;
+	repeated Monster monster = 6;
+}
