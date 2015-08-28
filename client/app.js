@@ -4,7 +4,7 @@ var Header = Builder.build('dungeon.Header');
 var LobbyStatusRequest = Builder.build('dungeon.LobbyStatusRequest');
 var LobbyStatusResponse = Builder.build('dungeon.LobbyStatusResponse');
 
-fnv32a = function(str) {
+function fnv32a(str) {
     var FNV1_32A_INIT = 0x811c9dc5;
     var hval = FNV1_32A_INIT;
     for (var i = 0; i < str.length; ++i)
@@ -13,7 +13,44 @@ fnv32a = function(str) {
         hval += (hval << 1) + (hval << 4) + (hval << 7) + (hval << 8) + (hval << 24);
     }
     return hval >>> 0;
+}
+
+var MessageBroker = function() {
+    this.handlers = {};
+    this.hashToClass = {};
 };
+
+MessageBroker.prototype.registerHandler = function(msgName, cls, fn) {
+
+    var msgHash = fnv32a(msgName);
+    if (_.has(this.hashToClass, msgHash)) {
+        console.log('Handler already registered for: ', msgHash);
+        return;
+    }
+    this.hashToClass[msgHash] = cls;
+    this.handlers[msgHash] = fn;
+};
+
+MessageBroker.prototype.handleMessage = function(header, body) {
+
+    var hash = header.msg_hash;
+    if (!_.has(this.hashToClass, hash)) {
+        console.log('Unknown msg: ', hash);
+        return;
+    }
+
+    var bodyMsg = this.hashToClass[hash].decode(body);
+    this.handlers[hash](header, bodyMsg);
+};
+
+function HandleLobbyResponse(header, body) {
+    console.log('lobby response', header, body);
+}
+
+var MESSAGE_BROKER = new MessageBroker();
+MESSAGE_BROKER.registerHandler('LobbyStatusResponse',
+    LobbyStatusResponse,
+    HandleLobbyResponse);
 
 var game = new Phaser.Game(
     800, 600, Phaser.AUTO, '', { preload: preload, create: create });
@@ -51,8 +88,9 @@ socket.binaryType = 'arraybuffer';
     var bodyLength = bb.readInt16();
 
     var header = Header.decode(bb.slice(4, 4+headerLength));
-    var body = LobbyStatusResponse.decode(
-        bb.slice(4+headerLength, 4+headerLength+bodyLength));
+    var body = bb.slice(4+headerLength, 4+headerLength+bodyLength);
+
+    MESSAGE_BROKER.handleMessage(header, body);
   };
 
 

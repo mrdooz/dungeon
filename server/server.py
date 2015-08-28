@@ -7,7 +7,6 @@ import uuid
 import logging
 import dungeon_pb2
 import struct
-import collections
 
 
 CONNECTED_CLIENTS = {}
@@ -52,10 +51,10 @@ def create_status(code, msg=None):
     return status
 
 
-def create_response_header(req_header):
+def create_response_header(req_header, msg_name):
     header = dungeon_pb2.Header()
     header.status.CopyFrom(create_status(0))
-    header.msg_hash = req_header.msg_hash
+    header.msg_hash = fnv32a(msg_name)
     header.token = req_header.token
     header.is_response = True
     return header
@@ -96,9 +95,7 @@ def handle_new_game_request(ws, header, req):
 
 
 def handle_lobby_status_request(ws, header, req):
-    print 'handle_lobby_status_request'
-    # import pdb; pdb.set_trace()
-    header = create_response_header(header)
+    header = create_response_header(header, 'LobbyStatusResponse')
     header_buf = header.SerializeToString()
     body = dungeon_pb2.LobbyStatusResponse()
     body.num_running_games = 3
