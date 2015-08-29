@@ -116,9 +116,13 @@ socket.binaryType = 'arraybuffer';
 
 function preload () {
     game.load.image('logo', 'phaser.png');
+    game.load.image('logo', 'phaser.png');
+
+    game.load.atlas('roguelikeDungeon', 'gfx/roguelikeDungeon_transparent.png', 'gfx/roguelikeDungeon.json');
 }
 
 var button;
+var bmd;
 
 function create () {
     var logo = game.add.sprite(game.world.centerX, game.world.centerY, 'logo');
@@ -129,6 +133,9 @@ function create () {
     button.onInputOver.add(over, this);
     button.onInputOut.add(out, this);
     button.onInputUp.add(up, this);
+
+    var tile00 = game.add.sprite(0, 0, 'roguelikeDungeon');
+    tile00.frameName = 'sprite00_00';
 }
 
 function up() {
