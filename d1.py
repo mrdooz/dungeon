@@ -167,13 +167,4 @@ for y in range(h):
         room_img.paste(im_sprite, box=(x*16, y*16, (x+1)*16, (y+1)*16), mask=im_sprite)
 
 room_img.show()
-# print room
-# print wall_sprites
 
-# (x,y)
-dungeon_sprites = {
-    (0, 2): 'skull1',
-    (1, 2): 'skull2',
-    (2, 2): 'skull3',
-    (3, 2): 'skull4',
-}
