@@ -36,16 +36,39 @@ class Player(object):
 
 
 class Level(object):
-    def __init__(self, width, height):
+    def __init__(self, width=None, height=None):
         self.width = width
         self.height = height
-        self.data = [[' '] * width for i in range(height)]
+        if self.width:
+            self.data = [[' '] * width for i in range(height)]
+        else:
+            self.data = []
 
     def __iter__(self):
         w, h = self.width, self.height
         for i in range(h):
             for j in range(w):
                 yield i, j, self.data[i][j]
+
+    def load(self, filename):
+        lines = []
+        max_width = 0
+        for line in open(filename).readlines():
+            line = line.strip()
+            max_width = max(max_width, len(line))
+            lines.append(line)
+
+        self.width = max_width
+        self.height = len(lines)
+
+        self.data = [[' '] * self.width for i in range(self.height)]
+
+        w, h = self.width, self.height
+        for i in range(h):
+            for j in range(w):
+                if j >= len(lines[i]):
+                    break
+                self.data[i][j] = lines[i][j]
 
     def generate(self):
         w, h = self.width, self.height
@@ -66,8 +89,8 @@ class Level(object):
                 w.y = i
         return level
 
-level = Level(16, 16)
-level.generate()
+level = Level()
+level.load('./room1.txt')
 
 
 class Client(object):

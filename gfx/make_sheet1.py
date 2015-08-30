@@ -1,27 +1,37 @@
 import json
 from PIL import Image
-im = Image.open('roguelikeDungeon_transparent.png')
+
+ofs = 0
+margin = 0
+size = 24
+# filename = 'roguelikeDungeon_transparent.png'
+filename = 'oryx_16bit_fantasy_world_trans.png'
+im = Image.open(filename)
 
 res = {}
 frames = []
 y = 0
-while y < im.size[1]:
+
+xx = margin + size
+yy = margin + size
+
+while y + yy <= im.size[1]:
     x = 0
-    while x < im.size[0]:
+    while x + xx <= im.size[0]:
         frame = {}
-        frame['filename'] = 'sprite%.2d_%.2d' % (x / 17, y / 17)
-        frame['frame'] = {'x': x, 'y': y, 'w': 16, 'h': 16}
+        frame['filename'] = 'sprite%.2d_%.2d' % (x / xx, y / yy)
+        frame['frame'] = {'x': x, 'y': y, 'w': size, 'h': size}
         frame['rotated'] = False
         frame['trimmed'] = False
-        frame['spriteSourceSize'] = {'x': 0, 'y': 0, 'w': 16, 'h': 16}
-        frame['sourceSize'] = {'w': 16, 'h': 16}
+        frame['spriteSourceSize'] = {'x': 0, 'y': 0, 'w': size, 'h': size}
+        frame['sourceSize'] = {'w': size, 'h': size}
         frames.append(frame)
-        x += 17
-    y += 17
+        x += xx
+    y += yy
 
 meta = {
     'app': 'magnus funky script',
-    'image': 'roguelikeDungeon_transparent.png',
+    'image': filename,
     'format': 'RGBA8888',
     'size': {'w': im.size[0], 'h': im.size[1]},
 }
