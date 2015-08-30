@@ -164,48 +164,12 @@ def send_message(ws, header, body):
     ws.write_message(preamble + header_buf + body_buf, binary=True)
 
 
-def handle_new_game_request(ws, header, req):
-    res_header = create_request_header(header, 'dungeon.NewGameResponse')
-    res_body = dungeon_pb2.NewGameResponse()
-    res_body.level.CopyFrom(level.to_protocol())
-    send_message(ws, res_header, res_body)
-
-
-def handle_lobby_status_request(ws, header, req):
-    header = create_response_header(header, 'dungeon.LobbyStatusResponse')
-    body = dungeon_pb2.LobbyStatusResponse()
-    body.num_running_games = 3
-    send_message(ws, header, body)
-
-
-def handle_player_action_request(ws, header, req):
-    print req
-
-
-def register_handlers():
-    MESSAGE_BROKER.register_handler(
-        'dungeon.NewGameRequest',
-        dungeon_pb2.NewGameRequest,
-        handle_new_game_request)
-
-    MESSAGE_BROKER.register_handler(
-        'dungeon.LobbyStatusRequest',
-        dungeon_pb2.LobbyStatusRequest,
-        handle_lobby_status_request)
-
-    MESSAGE_BROKER.register_handler(
-        'dungeon.PlayerActionRequest',
-        dungeon_pb2.PlayerActionRequest,
-        handle_player_action_request)
-
-
-class EchoWebSocket(tornado.websocket.WebSocketHandler):
+class GameServer(tornado.websocket.WebSocketHandler):
 
     def check_origin(self, origin):
         return True
 
     def open(self):
-        print 'connected'
         client_id = uuid.uuid4()
         self.client_id = client_id
         CONNECTED_CLIENTS[client_id] = Client(client_id)
@@ -216,7 +180,9 @@ class EchoWebSocket(tornado.websocket.WebSocketHandler):
         preamble_fmt = '!HH'
         header_size, body_size = struct.unpack(preamble_fmt, message[0:4])
 
-        print 'recv. header_size: %d, body_size: %d' % (header_size, body_size)
+        SERVER_LOG.info(
+            'recv. header_size: %d, body_size: %d',
+            header_size, body_size)
         header = dungeon_pb2.Header()
         header.ParseFromString(message[4:4 + header_size])
 
@@ -227,13 +193,47 @@ class EchoWebSocket(tornado.websocket.WebSocketHandler):
         SERVER_LOG.info('client disconnected: %r', self.client_id)
         del CONNECTED_CLIENTS[self.client_id]
 
+    def on_new_game_request(self):
+        pass
+
+    def handle_new_game_request(self, ws, header, req):
+        res_header = create_request_header(header, 'dungeon.NewGameResponse')
+        res_body = dungeon_pb2.NewGameResponse()
+        res_body.level.CopyFrom(level.to_protocol())
+        send_message(ws, res_header, res_body)
+
+    def handle_lobby_status_request(self, ws, header, req):
+        header = create_response_header(header, 'dungeon.LobbyStatusResponse')
+        body = dungeon_pb2.LobbyStatusResponse()
+        body.num_running_games = 3
+        send_message(ws, header, body)
+
+    def handle_player_action_request(ws, header, req):
+        print req
+
+    def register_handlers(self):
+        MESSAGE_BROKER.register_handler(
+            'dungeon.NewGameRequest',
+            dungeon_pb2.NewGameRequest,
+            self.handle_new_game_request)
+
+        MESSAGE_BROKER.register_handler(
+            'dungeon.LobbyStatusRequest',
+            dungeon_pb2.LobbyStatusRequest,
+            self.handle_lobby_status_request)
+
+        MESSAGE_BROKER.register_handler(
+            'dungeon.PlayerActionRequest',
+            dungeon_pb2.PlayerActionRequest,
+            self.handle_player_action_request)
+
 
 class MainHandler(tornado.web.RequestHandler):
     def get(self):
         self.write("Hello, world")
 
 application = tornado.web.Application([
-    (r"/websocket", EchoWebSocket)],
+    (r"/websocket", GameServer)],
     debug=True
 )
 

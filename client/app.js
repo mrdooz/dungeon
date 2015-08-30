@@ -145,7 +145,7 @@ function handleNewGameResponse(header, body) {
     for (i=0; i < ll.height; ++i) {
         for (j=0; j < ll.width; ++j) {
 
-            var tile = GAME.add.sprite(j*24, i*24, 'roguelikeDungeon');
+            var tile = GAME.add.sprite(j*24, i*24, 'worldSprites');
 
             var tileSprite;
             if (level[i][j] == ' ') {
@@ -158,6 +158,11 @@ function handleNewGameResponse(header, body) {
                 tileSprite[0], tileSprite[1]);
         }
     }
+
+    var charSprite = GAME.add.sprite(1*24, 1*24, 'creatureSprites');
+    charSprite.frameName = 'sprite01_01';
+    // charSprite.anchor.setTo(0.5, 1);
+    // charSprite.scale.x *= -1;
 
     return level;
 }
@@ -221,15 +226,17 @@ function preload () {
     // GAME.load.image('logo', 'phaser.png');
 
     GAME.load.atlas(
-        'roguelikeDungeon',
+        'worldSprites',
         'gfx/oryx_16bit_fantasy_world_trans.png',
         'gfx/oryx_16bit_fantasy_world_trans.json');
+
+    GAME.load.atlas(
+        'creatureSprites',
+        'gfx/oryx_16bit_fantasy_creatures_trans.png',
+        'gfx/oryx_16bit_fantasy_creatures_trans.json');
 }
 
 function create () {
-    // var logo = GAME.add.sprite(GAME.world.centerX, GAME.world.centerY, 'logo');
-    // logo.anchor.setTo(0.5, 0.5);
-
     var button = GAME.add.button(GAME.world.centerX - 95, 400, 'button', actionOnClick, this, 2, 1, 0);
     CURSORS = GAME.input.keyboard.createCursorKeys();
 
