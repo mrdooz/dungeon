@@ -8,7 +8,8 @@ var Header = Builder.build('dungeon.Header');
 var LobbyStatusRequest = Builder.build('dungeon.LobbyStatusRequest');
 var LobbyStatusResponse = Builder.build('dungeon.LobbyStatusResponse');
 var NewGameRequest = Builder.build('dungeon.NewGameRequest');
-var NewGameResponse = Builder.build('dungeon.NeweResponse');
+var NewGameResponse = Builder.build('dungeon.NewGameResponse');
+var PlayerActionRequest = Builder.build('dungeon.PlayerActionRequest');
 
 var socket = new WebSocket('ws://127.0.0.1:8888/websocket');
 socket.binaryType = 'arraybuffer';
@@ -100,21 +101,21 @@ function getTile(level, x, y) {
 
     var isInside = function(x, y) {
         return x >= 0 && x < w && y >= 0 && y < h;
-    }
+    };
 
     var isFilled = function(x, y) {
         return isInside(x, y) && level[y][x] == 'x';
-    }
+    };
 
     var res = 0;
-    var filled = isFilled(x, y)
-    if (x == 0 || (filled && level[y][x-1] == ' '))
+    var filled = isFilled(x, y);
+    if (x === 0 || (filled && level[y][x-1] == ' '))
         res += 0x1;
-    if (x == w-1 || (filled && level[y][x+1] == ' '))
+    if (x === w-1 || (filled && level[y][x+1] == ' '))
         res += 0x2;
-    if (y == 0 || (filled && level[y-1][x] == ' '))
+    if (y === 0 || (filled && level[y-1][x] == ' '))
         res += 0x4;
-    if (y == h-1 || (filled && level[y+1][x] == ' '))
+    if (y === h-1 || (filled && level[y+1][x] == ' '))
         res += 0x8;
     return res;
 }
@@ -128,20 +129,21 @@ function handleNewGameResponse(header, body) {
 
     var ll = body.level;
     level = [];
-    for (var i = 0; i < ll.height; ++i) {
+    var i, j;
+    for (i = 0; i < ll.height; ++i) {
         var row = [];
-        for (var j = 0; j < ll.width; ++j) {
+        for (j = 0; j < ll.width; ++j) {
             row.push(' ');
         }
         level.push(row);
     }
 
-    _.each(ll.wall, function(w) { 
+    _.each(ll.wall, function(w) {
         level[w.y][w.x] = 'x';
     });
 
-    for (var i = 0; i < ll.height; ++i) {
-        for (var j = 0; j < ll.width; ++j) {
+    for (i=0; i < ll.height; ++i) {
+        for (j=0; j < ll.width; ++j) {
 
             var tile = GAME.add.sprite(j*24, i*24, 'roguelikeDungeon');
 
@@ -236,13 +238,33 @@ function create () {
         Phaser.Keyboard.LEFT, Phaser.Keyboard.RIGHT, Phaser.Keyboard.SPACEBAR]);
 }
 
+function isKeyTriggered(key) {
+    if (key.justPressed(50)) {
+        key.waitForTrigger = true;
+        return false;
+    } else if (key.isUp && key.waitForTrigger) {
+        key.waitForTrigger = false;
+        return true;
+    } else {
+        return false;
+    }
+}
+
 function update() {
-    // read keyboard input
-    if (CURSORS.left.justPressed(50)) {
-        CURSORS.left.waitForTrigger = true;
-    } else if (CURSORS.left.isUp && CURSORS.left.waitForTrigger) {
-        console.log('left');
-        CURSORS.left.waitForTrigger = false;
+
+    var req = new PlayerActionRequest();
+    if (isKeyTriggered(CURSORS.left)) {
+        req.action = PlayerActionRequest.Action.MOVE_LEFT;
+    } else if (isKeyTriggered(CURSORS.right)) {
+        req.action = PlayerActionRequest.Action.MOVE_RIGHT;
+    } else if (isKeyTriggered(CURSORS.up)) {
+        req.action = PlayerActionRequest.Action.MOVE_UP;
+    } else if (isKeyTriggered(CURSORS.down)) {
+        req.action = PlayerActionRequest.Action.MOVE_DOWN;
+    }
+
+    if (req.action) {
+        sendRequest('dungeon.PlayerActionRequest', req);
     }
 }
 

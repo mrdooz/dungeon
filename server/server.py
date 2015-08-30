@@ -178,6 +178,10 @@ def handle_lobby_status_request(ws, header, req):
     send_message(ws, header, body)
 
 
+def handle_player_action_request(ws, header, req):
+    print req
+
+
 def register_handlers():
     MESSAGE_BROKER.register_handler(
         'dungeon.NewGameRequest',
@@ -188,6 +192,11 @@ def register_handlers():
         'dungeon.LobbyStatusRequest',
         dungeon_pb2.LobbyStatusRequest,
         handle_lobby_status_request)
+
+    MESSAGE_BROKER.register_handler(
+        'dungeon.PlayerActionRequest',
+        dungeon_pb2.PlayerActionRequest,
+        handle_player_action_request)
 
 
 class EchoWebSocket(tornado.websocket.WebSocketHandler):
