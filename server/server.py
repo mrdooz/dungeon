@@ -7,26 +7,15 @@ import uuid
 import logging
 import struct
 import dungeon_pb2
-import level_pb2
-import types_pb2
-
+from level import Level
+from settings import SERVER_LOG
+from message_broker import (
+    create_request_header,
+    create_response_header, send_message,
+    MessageBroker)
 
 CONNECTED_CLIENTS = {}
-SERVER_LOG = logging.getLogger('server')
-
-
-def fnv32a(msg):
-    hval = 0x811c9dc5
-    fnv_32_prime = 0x01000193
-    uint32_max = 2 ** 32
-    for s in msg:
-        hval = hval ^ ord(s)
-        hval = (hval * fnv_32_prime) % uint32_max
-    return hval
-
-
-class Game(object):
-    pass
+MESSAGE_BROKER = MessageBroker()
 
 
 class Player(object):
@@ -35,62 +24,58 @@ class Player(object):
         self.pos = pos
 
 
-class Level(object):
-    def __init__(self, width=None, height=None):
-        self.width = width
-        self.height = height
-        if self.width:
-            self.data = [[' '] * width for i in range(height)]
-        else:
-            self.data = []
+class Pos(object):
+    __slots__ = ('x', 'y')
 
-    def __iter__(self):
-        w, h = self.width, self.height
-        for i in range(h):
-            for j in range(w):
-                yield i, j, self.data[i][j]
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
 
-    def load(self, filename):
-        lines = []
-        max_width = 0
-        for line in open(filename).readlines():
-            line = line.strip()
-            max_width = max(max_width, len(line))
-            lines.append(line)
+    def __add__(self, rhs):
+        return Pos(self.x + rhs.x, self.y + rhs.y)
 
-        self.width = max_width
-        self.height = len(lines)
+    def __radd__(self, rhs):
+        return Pos(self.x + rhs.x, self.y + rhs.y)
 
-        self.data = [[' '] * self.width for i in range(self.height)]
+    @classmethod
+    def from_protocol(cls, proto):
+        return cls(proto.x, proto.y)
 
-        w, h = self.width, self.height
-        for i in range(h):
-            for j in range(w):
-                if j >= len(lines[i]):
-                    break
-                self.data[i][j] = lines[i][j]
 
-    def generate(self):
-        w, h = self.width, self.height
-        for i in range(h):
-            for j in range(w):
-                if i == 0 or i == h - 1 or j == 0 or j == w - 1:
-                    self.data[i][j] = 'x'
+class Game(object):
+    def __init__(self):
+        self.players = {}
+        self.level = Level()
+        self.level.load('./room1.txt')
 
-    def to_protocol(self):
-        level = level_pb2.Level()
-        level.width = self.width
-        level.height = self.height
+    def add_player(self, client, pos):
+        self.players[client] = Player(pos)
 
-        for i, j, d in self:
-            if d == 'x':
-                w = level.wall.add()
-                w.x = j
-                w.y = i
-        return level
+    def player_action(self, client, header, action):
+        player = self.players.get(client, None)
+        if not player:
+                # TODO: log error
+            return
 
-level = Level()
-level.load('./room1.txt')
+        print action
+
+        # import pdb; pdb.set_trace()
+        new_pos = None
+        if action.action == 1:
+            new_pos = player.pos + Pos(-1, 0)
+        elif action.action == 2:
+            new_pos = player.pos + Pos(+1, 0)
+        elif action.action == 3:
+            new_pos = player.pos + Pos(0, -1)
+        elif action.action == 4:
+            new_pos = player.pos + Pos(0, +1)
+
+        if new_pos:
+            if self.level.is_valid_pos(new_pos):
+                player.pos = new_pos
+            else:
+                # TODO: log error
+                pass
 
 
 class Client(object):
@@ -99,72 +84,7 @@ class Client(object):
         self.state = 'game-select'
 
 
-def create_status(code, msg=None):
-    status = dungeon_pb2.Status()
-    status.code = code
-    if msg:
-        status.msg = msg
-    return status
-
-
-def create_response_header(req_header, msg_name):
-    header = dungeon_pb2.Header()
-    header.status.CopyFrom(create_status(0))
-    header.msg_hash = fnv32a(msg_name)
-    header.token = req_header.token
-    header.is_response = True
-    return header
-
-
-def create_request_header(req_header, msg_name):
-    header = dungeon_pb2.Header()
-    header.status.CopyFrom(create_status(0))
-    header.msg_hash = fnv32a(msg_name)
-    header.token = req_header.token
-    header.is_response = True
-    return header
-
-
-class MessageBroker(object):
-    def __init__(self):
-        self.handlers = {}
-        self.hash_to_class = {}
-
-    def register_handler(self, msg_name, cls, fn):
-        msg_hash = fnv32a(msg_name)
-        if msg_hash in self.handlers:
-            SERVER_LOG.warning('Handler already registered for: %r' % msg_hash)
-            return
-        self.handlers[msg_hash] = fn
-        self.hash_to_class[msg_hash] = cls
-
-    def handle_message(self, ws, header, body):
-        msg_hash = header.msg_hash
-        handler = self.handlers.get(msg_hash, None)
-        if not handler:
-            SERVER_LOG.warning('No handler for message: %r', header)
-            return False
-
-        cls = self.hash_to_class[msg_hash]
-        msg = cls()
-        msg.ParseFromString(body)
-
-        handler(ws, header, msg)
-
-        return True
-
-MESSAGE_BROKER = MessageBroker()
-
-
-def send_message(ws, header, body):
-    header_buf = header.SerializeToString()
-    body_buf = body.SerializeToString()
-    preamble_fmt = '!HH'
-    preamble = struct.pack(preamble_fmt, len(header_buf), len(body_buf))
-    ws.write_message(preamble + header_buf + body_buf, binary=True)
-
-
-class GameServer(tornado.websocket.WebSocketHandler):
+class ConnectionHandler(tornado.websocket.WebSocketHandler):
 
     def check_origin(self, origin):
         return True
@@ -193,23 +113,12 @@ class GameServer(tornado.websocket.WebSocketHandler):
         SERVER_LOG.info('client disconnected: %r', self.client_id)
         del CONNECTED_CLIENTS[self.client_id]
 
-    def on_new_game_request(self):
-        pass
 
-    def handle_new_game_request(self, ws, header, req):
-        res_header = create_request_header(header, 'dungeon.NewGameResponse')
-        res_body = dungeon_pb2.NewGameResponse()
-        res_body.level.CopyFrom(level.to_protocol())
-        send_message(ws, res_header, res_body)
+class GameServer(object):
 
-    def handle_lobby_status_request(self, ws, header, req):
-        header = create_response_header(header, 'dungeon.LobbyStatusResponse')
-        body = dungeon_pb2.LobbyStatusResponse()
-        body.num_running_games = 3
-        send_message(ws, header, body)
-
-    def handle_player_action_request(ws, header, req):
-        print req
+    def __init__(self):
+        self.games = []
+        self.clients_to_games = {}
 
     def register_handlers(self):
         MESSAGE_BROKER.register_handler(
@@ -227,20 +136,50 @@ class GameServer(tornado.websocket.WebSocketHandler):
             dungeon_pb2.PlayerActionRequest,
             self.handle_player_action_request)
 
+    def handle_new_game_request(self, ws, header, req):
+        # check if any games are in progress, otherwise create one
+        if not self.games:
+            self.games.append(Game())
 
-class MainHandler(tornado.web.RequestHandler):
-    def get(self):
-        self.write("Hello, world")
+        # TODO: pick the best matching
+        game = self.games[0]
+        game.add_player(ws, Pos(1, 1))
+        self.clients_to_games[ws] = game
+
+        res_header = create_request_header(header, 'dungeon.NewGameResponse')
+        res_body = dungeon_pb2.NewGameResponse()
+        res_body.level.CopyFrom(game.level.to_protocol())
+        send_message(ws, res_header, res_body)
+
+    def handle_lobby_status_request(self, ws, header, req):
+        header = create_response_header(header, 'dungeon.LobbyStatusResponse')
+        body = dungeon_pb2.LobbyStatusResponse()
+        body.num_running_games = 3
+        send_message(ws, header, body)
+
+    def handle_player_action_request(self, ws, header, req):
+        # find game for the player
+        game = self.clients_to_games.get(ws, None)
+        if not game:
+            SERVER_LOG.warning('Unable to find game for client: %r', ws)
+            # TODO: send error
+            return
+
+        game.player_action(ws, header, req)
+
+
+SERVER = GameServer()
+
 
 application = tornado.web.Application([
-    (r"/websocket", GameServer)],
+    (r"/websocket", ConnectionHandler)],
     debug=True
 )
 
 if __name__ == "__main__":
     print 'server started'
     logging.basicConfig(filename='server.log', level=logging.DEBUG)
-    register_handlers()
+    SERVER.register_handlers()
 
     application.listen(8888)
     tornado.ioloop.IOLoop.current().start()

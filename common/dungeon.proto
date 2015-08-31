@@ -66,5 +66,5 @@ message PlayerActionRequest {
 }
 
 message PlayerActionResponse {
-	
+	optional Pos new_pos = 1;
 }
