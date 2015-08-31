@@ -1,4 +1,6 @@
 import level_pb2
+from random import randint
+from common_types import Pos
 
 
 class Level(object):
@@ -35,6 +37,13 @@ class Level(object):
                 if j >= len(lines[i]):
                     break
                 self.data[i][j] = lines[i][j]
+
+    def get_start_pos(self):
+        while True:
+            x, y = randint(0, self.width), randint(0, self.height)
+            pos = Pos(x, y)
+            if self.is_inside(pos) and not self.is_filled(pos):
+                return pos
 
     def generate(self):
         w, h = self.width, self.height

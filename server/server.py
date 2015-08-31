@@ -7,6 +7,7 @@ import uuid
 import logging
 import struct
 import dungeon_pb2
+from common_types import Pos
 from level import Level
 from settings import SERVER_LOG
 from message_broker import (
@@ -16,30 +17,14 @@ from message_broker import (
 
 CONNECTED_CLIENTS = {}
 MESSAGE_BROKER = MessageBroker()
+MAX_PLAYERS_PER_GAME = 5
 
 
 class Player(object):
-    def __init__(self, pos):
+    def __init__(self, player_id, pos):
         self.alive = True
+        self.id = player_id
         self.pos = pos
-
-
-class Pos(object):
-    __slots__ = ('x', 'y')
-
-    def __init__(self, x, y):
-        self.x = x
-        self.y = y
-
-    def __add__(self, rhs):
-        return Pos(self.x + rhs.x, self.y + rhs.y)
-
-    def __radd__(self, rhs):
-        return Pos(self.x + rhs.x, self.y + rhs.y)
-
-    @classmethod
-    def from_protocol(cls, proto):
-        return cls(proto.x, proto.y)
 
 
 class Game(object):
@@ -47,9 +32,24 @@ class Game(object):
         self.players = {}
         self.level = Level()
         self.level.load('./room1.txt')
+        self.next_player_id = 1
 
-    def add_player(self, client, pos):
-        self.players[client] = Player(pos)
+    def get_player_id(self):
+        res = self.next_player_id
+        self.next_player_id += 1
+        return res
+
+    def add_player(self, client, player_id, pos):
+        self.players[client] = Player(player_id, pos)
+
+    def get_player_states(self, players):
+        """
+        Copy the current player states into the supplied object
+        """
+        for player in self.players.values():
+            p = players.add()
+            p.id = player.id
+            p.pos.CopyFrom(player.pos.to_protocol())
 
     def player_action(self, client, header, action):
         player = self.players.get(client, None)
@@ -57,22 +57,29 @@ class Game(object):
                 # TODO: log error
             return
 
-        print action
-
-        # import pdb; pdb.set_trace()
         new_pos = None
-        if action.action == 1:
+        if action.action == action.MOVE_LEFT:
             new_pos = player.pos + Pos(-1, 0)
-        elif action.action == 2:
+        elif action.action == action.MOVE_RIGHT:
             new_pos = player.pos + Pos(+1, 0)
-        elif action.action == 3:
+        elif action.action == action.MOVE_UP:
             new_pos = player.pos + Pos(0, -1)
-        elif action.action == 4:
+        elif action.action == action.MOVE_DOWN:
             new_pos = player.pos + Pos(0, +1)
 
         if new_pos:
             if self.level.is_valid_pos(new_pos):
                 player.pos = new_pos
+
+                # send the player response
+                response = dungeon_pb2.PlayerActionResponse()
+                self.get_player_states(response.players)
+                send_message(
+                    client,
+                    create_response_header(
+                        header,
+                        'dungeon.PlayerActionResponse'),
+                    response)
             else:
                 # TODO: log error
                 pass
@@ -118,7 +125,6 @@ class GameServer(object):
 
     def __init__(self):
         self.games = []
-        self.clients_to_games = {}
 
     def register_handlers(self):
         MESSAGE_BROKER.register_handler(
@@ -139,16 +145,25 @@ class GameServer(object):
     def handle_new_game_request(self, ws, header, req):
         # check if any games are in progress, otherwise create one
         if not self.games:
-            self.games.append(Game())
+            game = Game()
+            self.games.append(game)
+        else:
+            for game in self.games:
+                if len(game.players) <= MAX_PLAYERS_PER_GAME:
+                    break
+            else:
+                game = Game()
+                self.games.append(game)
 
-        # TODO: pick the best matching
-        game = self.games[0]
-        game.add_player(ws, Pos(1, 1))
-        self.clients_to_games[ws] = game
+        player_id = game.get_player_id()
+        game.add_player(ws, player_id, game.level.get_start_pos())
+        ws.game = game
+        ws.player_id = player_id
 
         res_header = create_request_header(header, 'dungeon.NewGameResponse')
         res_body = dungeon_pb2.NewGameResponse()
         res_body.level.CopyFrom(game.level.to_protocol())
+        res_body.player_id = player_id
         send_message(ws, res_header, res_body)
 
     def handle_lobby_status_request(self, ws, header, req):
@@ -159,7 +174,7 @@ class GameServer(object):
 
     def handle_player_action_request(self, ws, header, req):
         # find game for the player
-        game = self.clients_to_games.get(ws, None)
+        game = getattr(ws, 'game', None)
         if not game:
             SERVER_LOG.warning('Unable to find game for client: %r', ws)
             # TODO: send error

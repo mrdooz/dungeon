@@ -10,15 +10,19 @@ var LobbyStatusResponse = Builder.build('dungeon.LobbyStatusResponse');
 var NewGameRequest = Builder.build('dungeon.NewGameRequest');
 var NewGameResponse = Builder.build('dungeon.NewGameResponse');
 var PlayerActionRequest = Builder.build('dungeon.PlayerActionRequest');
+var PlayerActionResponse = Builder.build('dungeon.PlayerActionResponse');
 
 var socket = new WebSocket('ws://127.0.0.1:8888/websocket');
 socket.binaryType = 'arraybuffer';
 
 var NEXT_TOKEN = 1;
+var PLAYER_ID;
+var PLAYER_SPRITE;
+var TILE_SIZE = 24;
 
 var flags = { LEFT: 0x1, RIGHT: 0x2, UP: 0x4, DOWN: 0x8 };
 
-var POS = null;
+var POS = { x: 1, y: 1 };
 
 var wallSprites = function() {
     // flags for the oryx tile set. flags indicate which sides are free
@@ -90,8 +94,22 @@ MessageBroker.prototype.handleMessage = function(header, body) {
     this.handlers[hash](header, bodyMsg);
 };
 
+function handlePlayerUpdate(players) {
+    _.each(players, function(p) {
+        if (p.id === PLAYER_ID) {
+            POS.x = p.pos.x;
+            POS.y = p.pos.y;
+        }
+    });
+}
+
 function handleLobbyResponse(header, body) {
     console.log('lobby response', header, body);
+}
+
+function handlePlayerActionResponse(header, body) {
+    console.log('player action response', header, body);
+    handlePlayerUpdate(body.players);
 }
 
 function getTile(level, x, y) {
@@ -159,11 +177,9 @@ function handleNewGameResponse(header, body) {
         }
     }
 
-    var charSprite = GAME.add.sprite(1*24, 1*24, 'creatureSprites');
-    charSprite.frameName = 'sprite01_01';
-    // charSprite.anchor.setTo(0.5, 1);
-    // charSprite.scale.x *= -1;
-
+    PLAYER_SPRITE = GAME.add.sprite(1*24, 1*24, 'creatureSprites');
+    PLAYER_SPRITE.frameName = 'sprite01_01';
+    PLAYER_ID = body.player_id;
     return level;
 }
 
@@ -175,6 +191,10 @@ MESSAGE_BROKER.registerHandler('dungeon.LobbyStatusResponse',
 MESSAGE_BROKER.registerHandler('dungeon.NewGameResponse',
     NewGameResponse,
     handleNewGameResponse);
+
+MESSAGE_BROKER.registerHandler('dungeon.PlayerActionResponse',
+    PlayerActionResponse,
+    handlePlayerActionResponse);
 
 var CURSORS;
 var GAME = new Phaser.Game(800, 600, Phaser.AUTO, '', {
@@ -237,7 +257,7 @@ function preload () {
 }
 
 function create () {
-    var button = GAME.add.button(GAME.world.centerX - 95, 400, 'button', actionOnClick, this, 2, 1, 0);
+    var button = GAME.add.button(0, 0, 'button', actionOnClick, this, 2, 1, 0);
     CURSORS = GAME.input.keyboard.createCursorKeys();
 
     // stop keys from propagating to the browser
@@ -272,6 +292,11 @@ function update() {
 
     if (req.action) {
         sendRequest('dungeon.PlayerActionRequest', req);
+    }
+
+    if (PLAYER_SPRITE) {
+        PLAYER_SPRITE.x = POS.x * TILE_SIZE;
+        PLAYER_SPRITE.y = POS.y * TILE_SIZE;
     }
 }
 
