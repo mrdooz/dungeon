@@ -21,13 +21,17 @@ def create_response_header(req_header, msg_name):
     return header
 
 
-def create_request_header(req_header, msg_name):
+def create_request_header(token, msg_name):
     header = dungeon_pb2.Header()
     header.status.CopyFrom(create_status(0))
     header.msg_hash = fnv32a(msg_name)
-    header.token = req_header.token
-    header.is_response = True
+    header.token = token if token is not None else 0
+    header.is_response = False
     return header
+
+
+def create_broadcast_header(msg_name):
+    return create_request_header(None, msg_name)
 
 
 def send_message(ws, header, body):
@@ -45,6 +49,8 @@ class MessageBroker(object):
 
     def register_handler(self, msg_name, cls, fn):
         msg_hash = fnv32a(msg_name)
+        SERVER_LOG.info(
+            'Registering handler for: %r, hash: %r', msg_name, msg_hash)
         if msg_hash in self.handlers:
             SERVER_LOG.warning('Handler already registered for: %r' % msg_hash)
             return

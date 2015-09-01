@@ -11,8 +11,8 @@ from common_types import Pos
 from level import Level
 from settings import SERVER_LOG
 from message_broker import (
-    create_request_header,
     create_response_header, send_message,
+    create_broadcast_header,
     MessageBroker)
 
 CONNECTED_CLIENTS = {}
@@ -28,6 +28,7 @@ class Player(object):
 
 
 class Game(object):
+    # TODO: add public/private games
     def __init__(self):
         self.players = {}
         self.level = Level()
@@ -39,8 +40,33 @@ class Game(object):
         self.next_player_id += 1
         return res
 
+    def broadcast_player_event(self, event, player_id):
+        msg = dungeon_pb2.PlayerEvent()
+        msg.event = event
+        msg.player_id = player_id
+
+        header = create_broadcast_header('dungeon.PlayerEvent')
+        for conn in self.players:
+            send_message(conn, header, msg)
+
+    def broadcast_player_update(self):
+        msg = dungeon_pb2.PlayerUpdate()
+        self.get_player_states(msg.players)
+
+        header = create_broadcast_header('dungeon.PlayerUpdate')
+        for conn in self.players:
+            send_message(conn, header, msg)
+
     def add_player(self, client, player_id, pos):
         self.players[client] = Player(player_id, pos)
+        self.broadcast_player_event(
+            dungeon_pb2.PlayerEvent.PLAYER_JOIN, player_id)
+
+    def remove_player(self, client):
+        player = self.players[client]
+        del self.players[client]
+        self.broadcast_player_event(
+            dungeon_pb2.PlayerEvent.PLAYER_LEAVE, player.id)
 
     def get_player_states(self, players):
         """
@@ -71,15 +97,8 @@ class Game(object):
             if self.level.is_valid_pos(new_pos):
                 player.pos = new_pos
 
-                # send the player response
-                response = dungeon_pb2.PlayerActionResponse()
-                self.get_player_states(response.players)
-                send_message(
-                    client,
-                    create_response_header(
-                        header,
-                        'dungeon.PlayerActionResponse'),
-                    response)
+                # send PlayerUpdate to all connected players in the game
+                self.broadcast_player_update()
             else:
                 # TODO: log error
                 pass
@@ -118,6 +137,8 @@ class ConnectionHandler(tornado.websocket.WebSocketHandler):
 
     def on_close(self):
         SERVER_LOG.info('client disconnected: %r', self.client_id)
+        if hasattr(self, 'game'):
+            self.game.remove_player(self)
         del CONNECTED_CLIENTS[self.client_id]
 
 
@@ -160,11 +181,13 @@ class GameServer(object):
         ws.game = game
         ws.player_id = player_id
 
-        res_header = create_request_header(header, 'dungeon.NewGameResponse')
+        res_header = create_response_header(header, 'dungeon.NewGameResponse')
         res_body = dungeon_pb2.NewGameResponse()
         res_body.level.CopyFrom(game.level.to_protocol())
         res_body.player_id = player_id
         send_message(ws, res_header, res_body)
+
+        game.broadcast_player_update()
 
     def handle_lobby_status_request(self, ws, header, req):
         header = create_response_header(header, 'dungeon.LobbyStatusResponse')

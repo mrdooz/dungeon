@@ -5,24 +5,41 @@ dcodeIO.ProtoBuf.loadProtoFile("common/types.proto", Builder);
 dcodeIO.ProtoBuf.loadProtoFile("common/level.proto", Builder);
 dcodeIO.ProtoBuf.loadProtoFile("common/dungeon.proto", Builder);
 var Header = Builder.build('dungeon.Header');
-var LobbyStatusRequest = Builder.build('dungeon.LobbyStatusRequest');
-var LobbyStatusResponse = Builder.build('dungeon.LobbyStatusResponse');
-var NewGameRequest = Builder.build('dungeon.NewGameRequest');
-var NewGameResponse = Builder.build('dungeon.NewGameResponse');
+var PlayerUpdate = Builder.build('dungeon.PlayerUpdate');
+var PlayerEvent = Builder.build('dungeon.PlayerEvent');
 var PlayerActionRequest = Builder.build('dungeon.PlayerActionRequest');
 var PlayerActionResponse = Builder.build('dungeon.PlayerActionResponse');
+
+var msgInfo = {
+    LobbyStatus: {
+        requestName: 'dungeon.LobbyStatusRequest',
+        requestClass: Builder.build('dungeon.LobbyStatusRequest'),
+        responseName: 'dungeon.LobbyStatusResponse',
+        responseClass: Builder.build('dungeon.LobbyStatusResponse'),
+    },
+
+    NewGame: {
+        requestName: 'dungeon.NewGameRequest',
+        requestClass: Builder.build('dungeon.NewGameRequest'),
+        responseName: 'dungeon.NewGameResponse',
+        responseClass: Builder.build('dungeon.NewGameResponse'),
+    },
+
+    PlayerAction: {
+        requestName: 'dungeon.PlayerActionRequest',
+        requestClass: PlayerActionRequest,
+        responseName: 'dungeon.PlayerActionResponse',
+        responseClass: PlayerActionResponse,
+    },
+};
 
 var socket = new WebSocket('ws://127.0.0.1:8888/websocket');
 socket.binaryType = 'arraybuffer';
 
 var NEXT_TOKEN = 1;
-var PLAYER_ID;
-var PLAYER_SPRITE;
 var TILE_SIZE = 24;
 
 var flags = { LEFT: 0x1, RIGHT: 0x2, UP: 0x4, DOWN: 0x8 };
-
-var POS = { x: 1, y: 1 };
 
 var wallSprites = function() {
     // flags for the oryx tile set. flags indicate which sides are free
@@ -66,9 +83,25 @@ function fnv32a(str) {
     return hval >>> 0;
 }
 
+var Pos = function(x, y) {
+    this.x = x;
+    this.y = y;
+};
+
+var Player = function(pos, id, sprite) {
+    this.pos = pos;
+    this.id = id;
+    this.sprite = sprite;
+};
+
+var PLAYERS = {};
+var LOCAL_PLAYER_ID;
+
 var MessageBroker = function() {
     this.handlers = {};
     this.hashToClass = {};
+    this.responseCallbacks = {};
+    this.nextToken = 1;
 };
 
 MessageBroker.prototype.registerHandler = function(msgName, cls, fn) {
@@ -84,32 +117,83 @@ MessageBroker.prototype.registerHandler = function(msgName, cls, fn) {
 
 MessageBroker.prototype.handleMessage = function(header, body) {
 
-    var hash = header.msg_hash;
-    if (!_.has(this.hashToClass, hash)) {
-        console.log('Unknown msg: ', hash);
-        return;
-    }
+    // If the message is a response, look for a registered callback
+    var bodyMsg;
+    if (header.is_response) {
+        if (!_.has(this.responseCallbacks, header.token)) {
+            console.log('No callback found for token: ', header.token);
+            return;
+        }
 
-    var bodyMsg = this.hashToClass[hash].decode(body);
-    this.handlers[hash](header, bodyMsg);
+        // Look up the callback and the response message class
+        var d = this.responseCallbacks[header.token];
+        bodyMsg = d.cls.decode(body);
+        d.cb(header, bodyMsg);
+
+    } else {
+        // message is a broadcast, so look for a handler
+        var hash = header.msg_hash;
+        if (!_.has(this.hashToClass, hash)) {
+            console.log('Unknown msg: ', hash);
+            return;
+        }
+
+        bodyMsg = this.hashToClass[hash].decode(body);
+        this.handlers[hash](header, bodyMsg);
+    }
+};
+
+MessageBroker.prototype.sendRequest = function (name, req, responseCb) {
+    var header = new Header();
+    var requestData = msgInfo[name];
+    header.msg_hash = fnv32a(requestData.requestName);
+    header.token = this.nextToken++;
+    var headerBuf = header.encode().toArrayBuffer();
+
+    if (!req) {
+        // create a default request
+        req = new requestData.requestClass();
+    }
+    var bodyBuf = req.encode().toArrayBuffer();
+    var bb = new ByteBuffer(2 + 2 + headerBuf.byteLength + bodyBuf.byteLength);
+    bb.writeInt16(headerBuf.byteLength);
+    bb.writeInt16(bodyBuf.byteLength);
+    bb.append(headerBuf);
+    bb.append(bodyBuf);
+    bb.reset();
+
+    this.responseCallbacks[header.token] = {
+        cls: msgInfo[name].responseClass,
+        cb: responseCb
+    };
+    socket.send(bb.toArrayBuffer());
 };
 
 function handlePlayerUpdate(players) {
     _.each(players, function(p) {
-        if (p.id === PLAYER_ID) {
-            POS.x = p.pos.x;
-            POS.y = p.pos.y;
+
+        var pos = new Pos(p.pos.x, p.pos.y);
+        if (_.has(PLAYERS, p.id)) {
+            PLAYERS[p.id].pos = pos;
+        } else {
+            var sprite = GAME.add.sprite(1*24, 1*24, 'creatureSprites');
+            sprite.frameName = 'sprite01_01';
+            PLAYERS[p.id] = new Player(pos, p.id, sprite);
         }
     });
 }
 
-function handleLobbyResponse(header, body) {
-    console.log('lobby response', header, body);
+function handlePlayerUpdateBroadcast(header, body) {
+    handlePlayerUpdate(body.players);
 }
 
-function handlePlayerActionResponse(header, body) {
-    console.log('player action response', header, body);
-    handlePlayerUpdate(body.players);
+function handlePlayerEventBroadcast(header, body) {
+    var event = PlayerEvent.Event;
+    if (body.event === event.PLAYER_LEAVE) {
+        var player = PLAYERS[body.player_id];
+        player.sprite.destroy();
+        delete PLAYERS[body.player_id];
+    }
 }
 
 function getTile(level, x, y) {
@@ -177,55 +261,39 @@ function handleNewGameResponse(header, body) {
         }
     }
 
-    PLAYER_SPRITE = GAME.add.sprite(1*24, 1*24, 'creatureSprites');
-    PLAYER_SPRITE.frameName = 'sprite01_01';
-    PLAYER_ID = body.player_id;
+    LOCAL_PLAYER_ID = body.player_id;
     return level;
 }
 
 var MESSAGE_BROKER = new MessageBroker();
-MESSAGE_BROKER.registerHandler('dungeon.LobbyStatusResponse',
-    LobbyStatusResponse,
-    handleLobbyResponse);
 
-MESSAGE_BROKER.registerHandler('dungeon.NewGameResponse',
-    NewGameResponse,
-    handleNewGameResponse);
+MESSAGE_BROKER.registerHandler('dungeon.PlayerUpdate',
+    PlayerUpdate,
+    handlePlayerUpdateBroadcast);
 
-MESSAGE_BROKER.registerHandler('dungeon.PlayerActionResponse',
-    PlayerActionResponse,
-    handlePlayerActionResponse);
+MESSAGE_BROKER.registerHandler('dungeon.PlayerEvent',
+    PlayerEvent,
+    handlePlayerEventBroadcast);
 
 var CURSORS;
-var GAME = new Phaser.Game(800, 600, Phaser.AUTO, '', {
+var GAME = new Phaser.Game(800, 2000, Phaser.AUTO, '', {
     preload: preload,
     create: create,
     update: update
 });
-
-function sendRequest(name, req) {
-    var header = new Header();
-    header.msg_hash = fnv32a(name);
-    var headerBuf = header.encode().toArrayBuffer();
-
-    var bodyBuf = req.encode().toArrayBuffer();
-    var bb = new ByteBuffer(2 + 2 + headerBuf.byteLength + bodyBuf.byteLength);
-    bb.writeInt16(headerBuf.byteLength);
-    bb.writeInt16(bodyBuf.byteLength);
-    bb.append(headerBuf);
-    bb.append(bodyBuf);
-    bb.reset();
-    socket.send(bb.toArrayBuffer());
-}
 
   // Handle any errors that occur.
   socket.onerror = function(error) {
     console.log('WebSocket Error: ' + error);
   };
 
-
   socket.onopen = function(event) {
-    sendRequest('dungeon.LobbyStatusRequest', new LobbyStatusRequest());
+    MESSAGE_BROKER.sendRequest(
+        'LobbyStatus',
+        null,
+        function(header, body) {
+            console.log('lobby response', header, body);
+        });
   };
 
   socket.onmessage = function(msg) {
@@ -243,7 +311,6 @@ function sendRequest(name, req) {
   };
 
 function preload () {
-    // GAME.load.image('logo', 'phaser.png');
 
     GAME.load.atlas(
         'worldSprites',
@@ -280,26 +347,32 @@ function isKeyTriggered(key) {
 function update() {
 
     var req = new PlayerActionRequest();
+    var action = PlayerActionRequest.Action;
     if (isKeyTriggered(CURSORS.left)) {
-        req.action = PlayerActionRequest.Action.MOVE_LEFT;
+        req.action = action.MOVE_LEFT;
     } else if (isKeyTriggered(CURSORS.right)) {
-        req.action = PlayerActionRequest.Action.MOVE_RIGHT;
+        req.action = action.MOVE_RIGHT;
     } else if (isKeyTriggered(CURSORS.up)) {
-        req.action = PlayerActionRequest.Action.MOVE_UP;
+        req.action = action.MOVE_UP;
     } else if (isKeyTriggered(CURSORS.down)) {
-        req.action = PlayerActionRequest.Action.MOVE_DOWN;
+        req.action = action.MOVE_DOWN;
     }
 
     if (req.action) {
-        sendRequest('dungeon.PlayerActionRequest', req);
+        MESSAGE_BROKER.sendRequest(
+            'PlayerAction',
+            req,
+            function(header, body) {
+                handlePlayerUpdate(body.players);
+            });
     }
 
-    if (PLAYER_SPRITE) {
-        PLAYER_SPRITE.x = POS.x * TILE_SIZE;
-        PLAYER_SPRITE.y = POS.y * TILE_SIZE;
-    }
+    _.each(PLAYERS, function(p) {
+        p.sprite.x = p.pos.x * TILE_SIZE;
+        p.sprite.y = p.pos.y * TILE_SIZE;
+    });
 }
 
 function actionOnClick () {
-    sendRequest('dungeon.NewGameRequest', new NewGameRequest());
+    MESSAGE_BROKER.sendRequest('NewGame', null, handleNewGameResponse);
 }
