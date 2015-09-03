@@ -37,7 +37,7 @@ def create_broadcast_header(msg_name):
 def send_message(ws, header, body):
     header_buf = header.SerializeToString()
     body_buf = body.SerializeToString()
-    preamble_fmt = '!HH'
+    preamble_fmt = '!HI'
     preamble = struct.pack(preamble_fmt, len(header_buf), len(body_buf))
     ws.write_message(preamble + header_buf + body_buf, binary=True)
 

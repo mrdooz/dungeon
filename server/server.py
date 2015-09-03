@@ -123,16 +123,16 @@ class ConnectionHandler(tornado.websocket.WebSocketHandler):
 
     def on_message(self, message):
         # message: header_size body_size header body
-        preamble_fmt = '!HH'
-        header_size, body_size = struct.unpack(preamble_fmt, message[0:4])
+        preamble_fmt = '!HI'
+        header_size, body_size = struct.unpack(preamble_fmt, message[0:6])
 
         SERVER_LOG.info(
             'recv. header_size: %d, body_size: %d',
             header_size, body_size)
         header = dungeon_pb2.Header()
-        header.ParseFromString(message[4:4 + header_size])
+        header.ParseFromString(message[6:6 + header_size])
 
-        s = 4 + header_size
+        s = 6 + header_size
         MESSAGE_BROKER.handle_message(self, header, message[s:s + body_size])
 
     def on_close(self):

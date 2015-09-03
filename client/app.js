@@ -10,6 +10,8 @@ var PlayerEvent = Builder.build('dungeon.PlayerEvent');
 var PlayerActionRequest = Builder.build('dungeon.PlayerActionRequest');
 var PlayerActionResponse = Builder.build('dungeon.PlayerActionResponse');
 
+var PREAMBLE_SIZE = 2 + 4;
+
 var msgInfo = {
     LobbyStatus: {
         requestName: 'dungeon.LobbyStatusRequest',
@@ -155,9 +157,9 @@ MessageBroker.prototype.sendRequest = function (name, req, responseCb) {
         req = new requestData.requestClass();
     }
     var bodyBuf = req.encode().toArrayBuffer();
-    var bb = new ByteBuffer(2 + 2 + headerBuf.byteLength + bodyBuf.byteLength);
+    var bb = new ByteBuffer(PREAMBLE_SIZE + headerBuf.byteLength + bodyBuf.byteLength);
     bb.writeInt16(headerBuf.byteLength);
-    bb.writeInt16(bodyBuf.byteLength);
+    bb.writeInt32(bodyBuf.byteLength);
     bb.append(headerBuf);
     bb.append(bodyBuf);
     bb.reset();
@@ -177,6 +179,9 @@ function handlePlayerUpdate(players) {
             PLAYERS[p.id].pos = pos;
         } else {
             var sprite = GAME.add.sprite(1*24, 1*24, 'creatureSprites');
+            if (p.id === LOCAL_PLAYER_ID) {
+                GAME.camera.follow(sprite);
+            }
             sprite.frameName = 'sprite01_01';
             PLAYERS[p.id] = new Player(pos, p.id, sprite);
         }
@@ -299,10 +304,12 @@ var GAME = new Phaser.Game(800, 2000, Phaser.AUTO, '', {
   socket.onmessage = function(msg) {
     var bb = new ByteBuffer.wrap(msg.data);
     var headerLength = bb.readInt16();
-    var bodyLength = bb.readInt16();
+    var bodyLength = bb.readInt32();
 
-    var header = Header.decode(bb.slice(4, 4+headerLength));
-    var body = bb.slice(4+headerLength, 4+headerLength+bodyLength);
+    var header = Header.decode(
+        bb.slice(PREAMBLE_SIZE, PREAMBLE_SIZE+headerLength));
+    var body = bb.slice(
+        PREAMBLE_SIZE+headerLength, PREAMBLE_SIZE+headerLength+bodyLength);
 
     MESSAGE_BROKER.handleMessage(header, body);
   };
